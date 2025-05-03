@@ -67,91 +67,6 @@ class HoneyLoraStackTags:
 
 
         return (concatenated_tags,)
-    
-class Honey_LoRAStack:
-    @classmethod
-    def INPUT_TYPES(cls):
-        loras = ["None"] + folder_paths.get_filename_list("loras")
-
-        return {
-            "required": {
-                # LoRA 1
-                "T1": ("BOOLEAN", {"default": True}),  # Toggle 1
-                "L1": (loras,),                        # LoRA name 1
-                "W1": ("FLOAT", {"default": 1.0, "min": -10.0, "max": 10.0, "step": 0.01}),  # Weight 1
-
-                # LoRA 2
-                "T2": ("BOOLEAN", {"default": True}),  # Toggle 2
-                "L2": (loras,),                        # LoRA name 2
-                "W2": ("FLOAT", {"default": 1.0, "min": -10.0, "max": 10.0, "step": 0.01}),  # Weight 2
-
-                # LoRA 3
-                "T3": ("BOOLEAN", {"default": True}),  # Toggle 3
-                "L3": (loras,),                        # LoRA name 3
-                "W3": ("FLOAT", {"default": 1.0, "min": -10.0, "max": 10.0, "step": 0.01}),  # Weight 3
-
-                # LoRA 4
-                "T4": ("BOOLEAN", {"default": True}),  # Toggle 4
-                "L4": (loras,),                        # LoRA name 4
-                "W4": ("FLOAT", {"default": 1.0, "min": -10.0, "max": 10.0, "step": 0.01}),  # Weight 4
-
-                # LoRA 5
-                "T5": ("BOOLEAN", {"default": True}),  # Toggle 5
-                "L5": (loras,),                        # LoRA name 5
-                "W5": ("FLOAT", {"default": 1.0, "min": -10.0, "max": 10.0, "step": 0.01}),  # Weight 5
-            },
-            "optional": {
-                "stack": ("LORA_STACK",),  # LoRA stack
-            },
-        }
-
-    RETURN_TYPES = ("LORA_STACK", "STRING")
-    RETURN_NAMES = ("stack", "tags")
-    FUNCTION = "stacker"
-    CATEGORY = "Honey"
-
-    def stacker(
-        self,
-        T1, L1, W1,
-        T2, L2, W2,
-        T3, L3, W3,
-        T4, L4, W4,
-        T5, L5, W5,
-        stack=None
-    ):
-        # Initialize LoRA stack
-        lora_list = []
-
-        # Extend with existing stack if provided
-        if stack is not None:
-            lora_list.extend([l for l in stack if l[0] != "None"])
-
-        # Add LoRAs based on toggles
-        if T1 and L1 != "None":
-            lora_list.append((L1, W1, W1))
-        if T2 and L2 != "None":
-            lora_list.append((L2, W2, W2))
-        if T3 and L3 != "None":
-            lora_list.append((L3, W3, W3))
-        if T4 and L4 != "None":
-            lora_list.append((L4, W4, W4))
-        if T5 and L5 != "None":
-            lora_list.append((L5, W5, W5))
-
-        # Extract and concatenate CivitAI tags
-        all_tags = []
-        for lora in lora_list:
-            lora_name = lora[0]
-
-            # Fetch CivitAI tags for each LoRA
-            civitai_tags = load_and_save_tags(lora_name, False)
-            all_tags.extend(civitai_tags)
-
-        # Remove duplicates, sort, and concatenate tags
-        all_tags = sorted(set(all_tags), key=str.lower)
-        tags_output = ", ".join(all_tags)
-
-        return lora_list, tags_output
 
 class ExtractLoRAName:
     @classmethod
@@ -186,7 +101,6 @@ class ExtractLoRAName:
             f"<lora:{lora[0]}>" for lora in lora_stack if isinstance(lora, tuple) and len(lora) > 0 and lora[0] != "None"
         )
         return (lora_string,)
-    
 
 class Honey_LoRAStackRandom:
     @classmethod
@@ -310,7 +224,6 @@ class Honey_LoRAStackRandom:
         m.update(str(random_toggle).encode('utf-8') + str(seed).encode('utf-8'))
         return m.digest().hex()
 
-
 class Honey_LoRATags:
     @classmethod
     def INPUT_TYPES(cls):
@@ -360,173 +273,6 @@ class Honey_LoRATags:
         tags_output = ", ".join(unique_tags)
 
         return (tags_output,)
-
-
-class Honey_LoRATags3:
-    @classmethod
-    def INPUT_TYPES(cls):
-        loras = ["None"] + folder_paths.get_filename_list("loras")
-        return {
-            "required": {
-                # LoRA 1
-                "L1": (loras,),  # LoRA name 1
-                # LoRA 2
-                "L2": (loras,),  # LoRA name 2
-                # LoRA 3
-                "L3": (loras,),  # LoRA name 3
-            }
-        }
-
-    RETURN_TYPES = ("STRING",)
-    RETURN_NAMES = ("tags",)
-    FUNCTION = "get_keyword_tags"
-
-    CATEGORY = "Honey"
-
-    def get_keyword_tags(self, L1, L2, L3):
-        """
-        Extracts and concatenates CivitAI keyword tags for selected LoRAs.
-
-        Args:
-            L1, L2, L3: LoRA names (strings).
-
-        Returns:
-            tuple: A single-element tuple containing the concatenated keyword tags string.
-        """
-        def load_keywords(lora_name):
-            """
-            Loads the CivitAI keyword tags for a given LoRA.
-
-            Args:
-                lora_name (str): Name of the LoRA file.
-
-            Returns:
-                list: List of keyword tags.
-            """
-            if lora_name == "None":
-                return []
-            return load_and_save_tags(lora_name, force_fetch=False)
-
-        # Collect LoRA names
-        loras = [L1, L2, L3]
-
-        # Fetch CivitAI keyword tags
-        all_tags = []
-        for lora in loras:
-            all_tags.extend(load_keywords(lora))
-
-        # Remove duplicates and concatenate tags
-        unique_tags = sorted(set(all_tags), key=str.lower)
-        tags_output = ", ".join(unique_tags)
-
-        return (tags_output,)
-
-
-#---------------------------------------------------------------------------------------------------------------------#
-class Honey_AspectRatio:
-    def __init__(self):
-        pass
-
-    @classmethod
-    def INPUT_TYPES(cls):
-        return {
-            "required": {
-                "aspect_ratio": ([ 
-                    "1:1 square 1024x1024",
-                    "3:4 portrait 896x1152",
-                    "5:8 portrait 832x1216",
-                    "9:16 portrait 768x1344",
-                    "9:21 portrait 640x1536",
-                    "4:3 landscape 1152x896",
-                    "3:2 landscape 1216x832",
-                    "16:9 landscape 1344x768",
-                    "21:9 landscape 1536x640"
-                ],),
-                "swap_dimensions": (["Off", "On"],),
-            }
-        }
-
-    RETURN_TYPES = ("INT", "INT")
-    RETURN_NAMES = ("width", "height")
-    FUNCTION = "Aspect_Ratio"
-
-    CATEGORY = "Honey"
-
-    def Aspect_Ratio(self, aspect_ratio, swap_dimensions):
-        # Define aspect ratios
-        aspect_ratios = {
-            "1:1 square 1024x1024": (1024, 1024),
-            "3:4 portrait 896x1152": (896, 1152),
-            "5:8 portrait 832x1216": (832, 1216),
-            "9:16 portrait 768x1344": (768, 1344),
-            "9:21 portrait 640x1536": (640, 1536),
-            "4:3 landscape 1152x896": (1152, 896),
-            "3:2 landscape 1216x832": (1216, 832),
-            "16:9 landscape 1344x768": (1344, 768),
-            "21:9 landscape 1536x640": (1536, 640),
-        }
-
-        # Get width and height
-        width, height = aspect_ratios.get(aspect_ratio, (1024, 1024))
-
-        # Swap dimensions if toggle is On
-        if swap_dimensions == "On":
-            width, height = height, width
-
-        return width, height
-
-#---------------------------------------------------------------------------------------------------------------------------------------------------#
-class HoneyTextConcat2:
-    # Takes up to 5 text inputs and concatenates them into a single string
-    # with an option for delimiter and toggles for each input
-
-    @classmethod
-    def INPUT_TYPES(cls):
-        return {
-            'optional': {
-                'LORA_tag': ('STRING', {'default': ''}),
-                'LORA_toggle': ('BOOLEAN', {'default': True}),
-                'Prefix': ('STRING', {'default': 'analog film photograph'}),
-                'Prefix_t': ('BOOLEAN', {'default': True}),
-                'Main_Prompt': ('STRING', {'default': 'beautiful woman wearing a sweater'}),
-                'Main_t': ('BOOLEAN', {'default': True}),
-                'extra': ('STRING', {'default': ''}),
-                'extra_t': ('BOOLEAN', {'default': True}),
-                'Suffix': ('STRING', {'default': '(8k, RAW photo, best quality, masterpiece:1.2), best quality, sharp focus, (Masterpiece), (Best Quality), extremely detailed, intricate, hyper detailed portrait.'}),
-                'Suffix_t': ('BOOLEAN', {'default': True}),
-            },
-            'required': {
-                'delimiter': ('STRING', {'default': ', '})
-            }
-        }
-
-    RETURN_TYPES = ('STRING',)
-    FUNCTION = 'concat'
-    CATEGORY = 'Honey'
-
-    def concat(
-        self, 
-        LORA_tag, LORA_toggle, 
-        Prefix, Prefix_t, 
-        Main_Prompt, Main_t, 
-        extra, extra_t, 
-        Suffix, Suffix_t, 
-        delimiter
-    ):
-        # Concatenate the strings with toggles and delimiter
-        texts = [
-            LORA_tag if LORA_toggle and LORA_tag.strip() else None,
-            Prefix if Prefix_t and Prefix.strip() else None,
-            Main_Prompt if Main_t and Main_Prompt.strip() else None,
-            extra if extra_t and extra.strip() else None,
-            Suffix if Suffix_t and Suffix.strip() else None,
-        ]
-        # Filter out None or empty strings
-        texts = [t for t in texts if t is not None]
-
-        # Join the enabled texts with the specified delimiter
-        result = delimiter.join(texts)
-        return (result,)
 
 class HoneyTextConcat:
     @classmethod
@@ -647,13 +393,16 @@ class HoneyBatchAspectRatio:
 
 #---------------------------------------------------------------------------------------------------------------------#
 
-
-
 ###############################################################
 
 
 ##############################################################################################################################
 ##############################################################################################################################
+
+from .loader_nodes import LoraLoaderx
+from .loader_nodes import SmLoraLoader
+from .concat import TagAdder
+
 
 # A dictionary that contains all nodes you want to export with their names
 # NOTE: names should be globally unique
@@ -661,22 +410,24 @@ NODE_CLASS_MAPPINGS = {
     "HoneyLoraStackTags": HoneyLoraStackTags,
     "Honey_LoRAStackRandom":Honey_LoRAStackRandom,
     'Honey_LoRATags':Honey_LoRATags,
-    "Honey_LoRAStack": Honey_LoRAStack,
     "HoneyTextConcat":HoneyTextConcat,
     'ExtractLoRAName':ExtractLoRAName,
-    'Honey_AspectRatio':Honey_AspectRatio,
     'HoneyBatchAspectRatio':HoneyBatchAspectRatio,
+    "Honey Lora Loader":LoraLoaderx,
+    "Small Lora Loader":SmLoraLoader,
+    "TagAdder":TagAdder,
 }
 
 # A dictionary that contains the friendly/humanly readable titles for the nodes
 NODE_DISPLAY_NAME_MAPPINGS = {
     "HoneyLoraStackTags": "Honey LoRA Stack Tags",
-    "Honey_LoRAStack": "Honey LoRA Stack",
     "Honey_LoRAStackRandom": "Honey LoRA Stack Random",
     'Honey_LoRATags':'Honey LoRATags',
     "HoneyTextConcat":"Honey TextConcat",
-    'ExtractLoRAName':'Extract LoRAName',
-    'Honey_AspectRatio':'Honey AspectRatio',
+    'ExtractLoRAName':'Honey Extract LoRAName',
     'HoneyBatchAspectRatio':'Honey Batch AspectRatio',
+    "LoraLoaderx":'Honey Lora Loader',
+    "SmLoraLoader":'Small Honey Lora Loader',
+    "TagAdder":'Honey TagAdder',
 }
 
