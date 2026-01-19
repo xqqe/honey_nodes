@@ -340,6 +340,8 @@ class HoneyBatchAspectRatio:
     
         aspect_ratios = ["custom",
                                   "1:1 square 1024x1024",
+                                  "1:1 square 1152x1152",
+                                  "3:4 portrait 1152x1536",
                                   "3:4 portrait 896x1152",
                                   "5:8 portrait 832x1216",
                                   "9:16 portrait 768x1344",
@@ -351,8 +353,8 @@ class HoneyBatchAspectRatio:
         
         return {
             "required": {
-                "width": ("INT", {"default": 1024, "min": 64, "max": 8192}),
-                "height": ("INT", {"default": 1024, "min": 64, "max": 8192}),
+                "width": ("INT", {"default": 1152, "min": 64, "max": 8192}),
+                "height": ("INT", {"default": 1152, "min": 64, "max": 8192}),
                 "aspect_ratio": (aspect_ratios,),
                 "swap_dimensions": (["Off", "On"],),
                 "batch_size": ("INT", {"default": 1, "min": 1, "max": 64})
@@ -366,6 +368,10 @@ class HoneyBatchAspectRatio:
     def Aspect_Ratio(self, width, height, aspect_ratio, swap_dimensions, batch_size):
         if aspect_ratio == "1:1 square 1024x1024":
             width, height = 1024, 1024
+        elif aspect_ratio == "1:1 square 1152x1152":
+            width, height = 1152, 1152
+        elif aspect_ratio == "3:4 portrait 1152x1536":
+            width, height = 1152, 1536
         elif aspect_ratio == "3:4 portrait 896x1152":
             width, height = 896, 1152
         elif aspect_ratio == "5:8 portrait 832x1216":
