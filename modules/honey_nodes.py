@@ -1,15 +1,143 @@
 
 import folder_paths
-
+import os
 import random
 
 # from utils import *
 from .utils import load_and_save_tags, append_lora_name_if_empty
 
+
+class HoneyPowerLoraTagsFromPrompt:
+    @classmethod
+    def INPUT_TYPES(s):
+        return {
+            "required": {
+                "model": ("MODEL",),
+                "force_fetch": ("BOOLEAN", {"default": False}),
+                "append_loraname_if_empty": ("BOOLEAN", {"default": False}),
+            },
+            "hidden": {
+                "prompt": "PROMPT",
+                "unique_id": "UNIQUE_ID",
+            }
+        }
+
+    RETURN_TYPES = ("MODEL", "STRING", "STRING")
+    RETURN_NAMES = ("model", "tags", "lora_names")
+    FUNCTION = "extract_tags"
+    CATEGORY = "Honey"
+
+    def extract_tags(self, model, force_fetch, append_loraname_if_empty, prompt=None, unique_id=None):
+        def clean_lora_name_for_output(lora_name):
+            import os
+
+            name = os.path.basename(lora_name or "")
+
+            if name.lower().endswith(".safetensors"):
+                name = name[:-len(".safetensors")]
+
+            for char in [" ", ",", ";", "|", "/", "\\"]:
+                name = name.replace(char, "_")
+
+            for char in ['<', '>', ':', '"', '?', '*']:
+                name = name.replace(char, "")
+
+            while "__" in name:
+                name = name.replace("__", "_")
+
+            return name.strip("_-.")
+
+        def find_upstream_node_id(current_node_id, input_name):
+            """
+            Finds the node connected to current_node_id[input_name].
+            In Comfy prompt JSON, links usually appear as [source_node_id, output_index].
+            """
+            if prompt is None or current_node_id is None:
+                return None
+
+            current_node = prompt.get(str(current_node_id))
+            if not current_node:
+                return None
+
+            inputs = current_node.get("inputs", {})
+            link = inputs.get(input_name)
+
+            if isinstance(link, list) and len(link) >= 1:
+                return str(link[0])
+
+            return None
+
+        def get_enabled_loras_from_prompt_node(prompt_node):
+            """
+            Extracts enabled rgthree Power Lora Loader widget values.
+            Expected rgthree inputs look like:
+              lora_1: {"on": true, "lora": "...", "strength": 1}
+            """
+            result = []
+
+            if not prompt_node:
+                return result
+
+            inputs = prompt_node.get("inputs", {})
+
+            for input_name, value in inputs.items():
+                if not input_name.startswith("lora_"):
+                    continue
+
+                if not isinstance(value, dict):
+                    continue
+
+                if not value.get("on"):
+                    continue
+
+                lora_name = value.get("lora")
+
+                if not lora_name or lora_name == "None":
+                    continue
+
+                result.append(lora_name)
+
+            return result
+
+        all_tags = []
+        lora_name_outputs = []
+
+        source_node_id = find_upstream_node_id(unique_id, "model")
+
+        if source_node_id is not None:
+            source_node = prompt.get(str(source_node_id), {})
+            lora_names = get_enabled_loras_from_prompt_node(source_node)
+        else:
+            lora_names = []
+
+        for lora_name in lora_names:
+            civitai_tags_list = load_and_save_tags(lora_name, force_fetch)
+
+            if civitai_tags_list is None:
+                civitai_tags_list = []
+
+            civitai_tags_list = append_lora_name_if_empty(
+                civitai_tags_list,
+                lora_name,
+                append_loraname_if_empty
+            )
+
+            all_tags.extend(civitai_tags_list)
+
+            cleaned_name = clean_lora_name_for_output(lora_name)
+            if cleaned_name:
+                lora_name_outputs.append(cleaned_name)
+
+        all_tags = sorted(set(all_tags), key=str.lower)
+
+        tags_output = ", ".join(all_tags)
+        lora_names_output = "_".join(lora_name_outputs)
+
+        return (model, tags_output, lora_names_output)
+
 class HoneyLoraStackTags:
     @classmethod
     def INPUT_TYPES(s):
-        LORA_LIST = sorted(folder_paths.get_filename_list("loras"), key=str.lower)
         return {
             "required": {
                 "lora_stack": ("LORA_STACK",),
@@ -18,56 +146,111 @@ class HoneyLoraStackTags:
             },
             "optional": {
                 "override_lora_name": ("STRING", {"forceInput": True}),
+                "previous_loras": ("STRING", {"forceInput": True}),
             }
         }
 
-    RETURN_TYPES = ("LIST",)
-    RETURN_NAMES = ("concatenated_tags",)
+    RETURN_TYPES = ("STRING", "STRING",)
+    RETURN_NAMES = ("concatenated_tags", "lora_names",)
     FUNCTION = "process_lora_stack"
     CATEGORY = "Honey"
 
-    def process_lora_stack(self, lora_stack, force_fetch, append_loraname_if_empty, override_lora_name=""):
+    def process_lora_stack(
+        self,
+        lora_stack,
+        force_fetch,
+        append_loraname_if_empty,
+        override_lora_name="",
+        previous_loras=""
+    ):
         """
-        Processes a LoRA stack, extracts tags for each LoRA, and concatenates all tags into a single list.
-
-        Args:
-            lora_stack (list): A list of LoRA tuples, each containing (name, weight1, weight2).
-            force_fetch (bool): Whether to force-fetch tags.
-            append_loraname_if_empty (bool): Whether to append the LoRA name if tags are empty.
-            override_lora_name (str): An override name for the LoRA being processed.
-
-        Returns:
-            tuple: A single-element tuple containing the concatenated tags list.
+        Processes a LoRA stack, extracts tags for each LoRA, concatenates all tags
+        into a single string, and outputs filename-safe LoRA names.
         """
+
+        def strip_safetensors(name):
+            name = name or ""
+
+            if name.lower().endswith(".safetensors"):
+                return name[:-len(".safetensors")]
+
+            return name
+
+        def make_filename_safe(name):
+            name = name or ""
+            name = name.strip()
+
+            # Normalize common separators into underscores
+            for char in [" ", ",", ";", "|", "/", "\\"]:
+                name = name.replace(char, "_")
+
+            # Remove characters Windows does not allow in filenames
+            for char in ['<', '>', ':', '"', '?', '*']:
+                name = name.replace(char, "")
+
+            # Collapse repeated underscores
+            while "__" in name:
+                name = name.replace("__", "_")
+
+            return name.strip("_-.")
+
+        def clean_lora_name_for_output(lora_name):
+            name = os.path.basename(lora_name or "")
+            name = strip_safetensors(name)
+            name = make_filename_safe(name)
+            return name
+
+        def join_nonempty(items, separator):
+            cleaned = []
+
+            for item in items:
+                item = (item or "").strip()
+                if item:
+                    cleaned.append(item)
+
+            return separator.join(cleaned)
+
         all_tags = []
+        lora_name_chunks = []
+
+        override_lora_name = (override_lora_name or "").strip()
+        previous_loras = (previous_loras or "").strip()
 
         for lora in lora_stack:
             lora_name = lora[0]
-            if override_lora_name:
-                lora_name = override_lora_name
 
-            # Fetch meta and civitai tags
-            # meta_tags_list = sort_tags_by_frequency(get_metadata(lora_name, "loras"))
-            civitai_tags_list = load_and_save_tags(lora_name, force_fetch)
+            if not lora_name or lora_name == "None":
+                continue
 
-            # Append LoRA name if tags are empty
-            # meta_tags_list = append_lora_name_if_empty(meta_tags_list, lora_name, append_loraname_if_empty)
-            civitai_tags_list = append_lora_name_if_empty(civitai_tags_list, lora_name, append_loraname_if_empty)
-            
+            tag_lookup_name = override_lora_name if override_lora_name else lora_name
 
-            # Concatenate tags
-            # all_tags.extend(meta_tags_list)
+            civitai_tags_list = load_and_save_tags(tag_lookup_name, force_fetch)
+
+            if civitai_tags_list is None:
+                civitai_tags_list = []
+
+            civitai_tags_list = append_lora_name_if_empty(
+                civitai_tags_list,
+                tag_lookup_name,
+                append_loraname_if_empty
+            )
+
             all_tags.extend(civitai_tags_list)
 
+            clean_name = clean_lora_name_for_output(lora_name)
+            if clean_name:
+                lora_name_chunks.append(clean_name)
 
-        # Remove duplicates and sort
+        # Remove duplicate tags and sort
         all_tags = sorted(set(all_tags), key=str.lower)
-        # Convert to a single space-separated string
-        concatenated_tags = " ".join(all_tags)
 
+        # Match LoraLoaderx formatting
+        concatenated_tags = ", ".join(all_tags)
 
-        return (concatenated_tags,)
+        current_lora_names = join_nonempty(lora_name_chunks, "_")
+        lora_names_output = join_nonempty([previous_loras, current_lora_names], "_")
 
+        return (concatenated_tags, lora_names_output)
 class ExtractLoRAName:
     @classmethod
     def INPUT_TYPES(cls):
@@ -397,7 +580,8 @@ class HoneyBatchAspectRatio:
            
         return(width, height, batch_size, {"samples":latent} )  
 
-#---------------------------------------------------------------------------------------------------------------------#
+
+
 
 ###############################################################
 
@@ -405,35 +589,20 @@ class HoneyBatchAspectRatio:
 ##############################################################################################################################
 ##############################################################################################################################
 
-from .loader_nodes import LoraLoaderx
-from .loader_nodes import SmLoraLoader
-from .concat import TagAdder
+
+
 
 
 # A dictionary that contains all nodes you want to export with their names
 # NOTE: names should be globally unique
 NODE_CLASS_MAPPINGS = {
     "HoneyLoraStackTags": HoneyLoraStackTags,
-    "Honey_LoRAStackRandom":Honey_LoRAStackRandom,
-    'Honey_LoRATags':Honey_LoRATags,
-    "HoneyTextConcat":HoneyTextConcat,
-    'ExtractLoRAName':ExtractLoRAName,
     'HoneyBatchAspectRatio':HoneyBatchAspectRatio,
-    "Honey Lora Loader":LoraLoaderx,
-    "Small Lora Loader":SmLoraLoader,
-    "TagAdder":TagAdder,
 }
 
 # A dictionary that contains the friendly/humanly readable titles for the nodes
 NODE_DISPLAY_NAME_MAPPINGS = {
     "HoneyLoraStackTags": "Honey LoRA Stack Tags",
-    "Honey_LoRAStackRandom": "Honey LoRA Stack Random",
-    'Honey_LoRATags':'Honey LoRATags',
-    "HoneyTextConcat":"Honey TextConcat",
-    'ExtractLoRAName':'Honey Extract LoRAName',
-    'HoneyBatchAspectRatio':'Honey Batch AspectRatio',
-    "LoraLoaderx":'Honey Lora Loader',
-    "SmLoraLoader":'Small Honey Lora Loader',
-    "TagAdder":'Honey TagAdder',
+    "HoneyBatchAspectRatio": "Honey Batch AspectRatio",
 }
 
