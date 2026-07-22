@@ -508,11 +508,201 @@ class SmLoraLoader:
         combined_lora_names = join_nonempty([lora_names, new_lora_names], "_")
 
         return (combined_tags, combined_lora_names, combined_loras)
-    
+
+
+from pathlib import Path
+
+
+
+class AnyType(str):
+    """
+    Wildcard socket type.
+
+    This allows the output to connect to ComfyUI combo inputs after the
+    combo widget has been converted into an input socket.
+    """
+
+    def __ne__(self, other):
+        return False
+
+
+ANY_TYPE = AnyType("*")
+
+
+class HoneyLoraPathFromString:
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "lora_path": (
+                    "STRING",
+                    {
+                        "default": "",
+                        "forceInput": True,
+                        "multiline": False,
+                        "tooltip": (
+                            "A LoRA filename, path relative to models/loras, "
+                            "or an absolute path inside the configured LoRA folders."
+                        ),
+                    },
+                ),
+            },
+            "optional": {
+                "validate_exists": (
+                    "BOOLEAN",
+                    {
+                        "default": True,
+                        "tooltip": (
+                            "Raise an error if the resolved LoRA file "
+                            "does not exist."
+                        ),
+                    },
+                ),
+            },
+        }
+
+    RETURN_TYPES = (ANY_TYPE, "STRING", "BOOLEAN")
+    RETURN_NAMES = (
+        "lora_name",
+        "normalized_path",
+        "exists",
+    )
+
+    FUNCTION = "resolve_lora_path"
+    CATEGORY = "Honey/LoRA"
+
+    @classmethod
+    def IS_CHANGED(cls, **kwargs):
+        return float("nan")
+
+    def _configured_lora_directories(self):
+        """
+        Returns all directories registered for the ComfyUI 'loras' category.
+        """
+
+        directories = []
+
+        folder_data = folder_paths.folder_names_and_paths.get("loras")
+
+        if folder_data:
+            configured_paths = folder_data[0]
+
+            if isinstance(configured_paths, (str, Path)):
+                configured_paths = [configured_paths]
+
+            for configured_path in configured_paths:
+                directories.append(
+                    Path(configured_path).resolve()
+                )
+
+        return directories
+
+    def _normalize_relative_path(self, path):
+        """
+        Normalize separators to ComfyUI's usual forward-slash format.
+        """
+
+        return str(path).replace("\\", "/").lstrip("/")
+
+    def _relative_to_lora_directory(self, absolute_path):
+        """
+        Convert an absolute path inside one of ComfyUI's LoRA directories
+        into a path relative to that directory.
+        """
+
+        absolute_path = absolute_path.resolve()
+
+        for lora_directory in self._configured_lora_directories():
+            try:
+                relative_path = absolute_path.relative_to(lora_directory)
+
+                return self._normalize_relative_path(relative_path)
+            except ValueError:
+                continue
+
+        return None
+
+    def _find_relative_lora(self, relative_path):
+        """
+        Search all configured LoRA directories for a relative path.
+        """
+
+        normalized = self._normalize_relative_path(relative_path)
+
+        for lora_directory in self._configured_lora_directories():
+            candidate = (
+                lora_directory
+                / Path(normalized.replace("/", os.sep))
+            )
+
+            if candidate.is_file():
+                return candidate
+
+        return None
+
+    def resolve_lora_path(
+        self,
+        lora_path,
+        validate_exists=True,
+    ):
+        raw_path = str(lora_path or "").strip().strip('"')
+
+        if not raw_path:
+            raise ValueError("The LoRA path input is empty.")
+
+        if raw_path.lower() == "none":
+            return ("None", "None", True)
+
+        supplied_path = Path(raw_path)
+
+        if supplied_path.is_absolute():
+            relative_path = self._relative_to_lora_directory(
+                supplied_path
+            )
+
+            if relative_path is None:
+                raise ValueError(
+                    "The supplied absolute path is not inside any "
+                    "directory configured for ComfyUI LoRAs:\n"
+                    f"{supplied_path}"
+                )
+
+            exists = supplied_path.is_file()
+
+        else:
+            relative_path = self._normalize_relative_path(raw_path)
+            resolved_file = self._find_relative_lora(relative_path)
+            exists = resolved_file is not None
+
+        if validate_exists and not exists:
+            raise FileNotFoundError(
+                "LoRA file was not found in the configured LoRA "
+                f"directories:\n{relative_path}"
+            )
+
+        print(
+            f"[Honey LoRA Path] Input: {raw_path}\n"
+            f"[Honey LoRA Path] Output: {relative_path}\n"
+            f"[Honey LoRA Path] Exists: {exists}"
+        )
+
+        # The wildcard output carries the same Python string as
+        # normalized_path, but can connect to the loader's combo socket.
+        return (
+            relative_path,
+            relative_path,
+            exists,
+        )
+
+
+
+
 NODE_CLASS_MAPPINGS = {
     "HoneyLoraLoader": LoraLoaderx,
+    "HoneyLoraPathFromString": HoneyLoraPathFromString,
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
     "HoneyLoraLoader": "Honey Lora Loader",
+    "HoneyLoraPathFromString": "LoRA Path From String",
 }
